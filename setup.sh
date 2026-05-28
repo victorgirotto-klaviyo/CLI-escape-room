@@ -132,7 +132,171 @@ echo "The street is right there."
 echo ""
 echo "→  Type 'cd street' to step outside."
 
-cp -r "$SCRIPT_DIR/.staging/street" "$SCRIPT_DIR/street"
+# Generate the street directory and escape animation on the fly
+mkdir -p "$SCRIPT_DIR/street"
+
+cat > "$SCRIPT_DIR/street/README.txt" << 'STREETEOF'
+You're outside.
+
+Cold night air fills your lungs. Above you, a full moon.
+Behind you, the manor — its windows dark, its crows finally silent.
+
+The street stretches out ahead.
+STREETEOF
+
+cat > "$SCRIPT_DIR/street/run_away.sh" << 'RUNEOF'
+#!/usr/bin/env bash
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    echo "Usage: ./run_away.sh"
+    echo ""
+    echo "You made it out. Run!"
+    echo "Press Ctrl+C to exit."
+    exit 0
+fi
+
+trap 'tput cnorm; clear; echo ""; exit 0' INT
+tput civis
+clear
+
+COLS=$(tput cols 2>/dev/null || echo 80)
+ROWS=$(tput lines 2>/dev/null || echo 24)
+MID=$(( ROWS / 2 - 2 ))
+
+# ── Stick figure — 4 running frames ──────────────────────────
+declare -a F0=(
+'  o  '
+' /|\ '
+'  |  '
+' / \ '
+)
+declare -a F1=(
+'  o  '
+'  |\ '
+' /|  '
+'/  \ '
+)
+declare -a F2=(
+'  o  '
+' \|/ '
+'  |  '
+'  /\ '
+)
+declare -a F3=(
+'  o  '
+' /|  '
+'  |\ '
+' /  \'
+)
+
+frames=(F0 F1 F2 F3)
+fi=0
+x=1
+max_x=$(( COLS - 7 ))
+
+# Draw static background once — no clear needed inside the loop
+GROUND=$(( MID + 4 ))
+
+# Moon (top right)
+tput cup 1 $(( COLS - 8 )); printf '  __   '
+tput cup 2 $(( COLS - 8 )); printf ' /  \  '
+tput cup 3 $(( COLS - 8 )); printf ' \__/  '
+
+# House (left side, base at ground line)
+tput cup $(( GROUND - 5 )) 0; printf '   /\    '
+tput cup $(( GROUND - 4 )) 0; printf '  /  \   '
+tput cup $(( GROUND - 3 )) 0; printf ' | [] |  '
+tput cup $(( GROUND - 2 )) 0; printf ' |    |  '
+tput cup $(( GROUND - 1 )) 0; printf ' |____|  '
+
+# Ground line (full width)
+tput cup $GROUND 0
+printf '%*s' "$COLS" '' | tr ' ' '_'
+
+# Street lamp (right side)
+tput cup $(( GROUND - 4 )) $(( COLS - 9 )); printf '.-.  '
+tput cup $(( GROUND - 3 )) $(( COLS - 9 )); printf '| |  '
+tput cup $(( GROUND - 2 )) $(( COLS - 9 )); printf ' |   '
+tput cup $(( GROUND - 1 )) $(( COLS - 9 )); printf ' |   '
+
+prev_x=-1
+while true; do
+    # Erase previous figure position (5 chars wide × 4 rows)
+    if [ $prev_x -ge 0 ]; then
+        for i in 0 1 2 3; do
+            tput cup $(( MID + i )) $prev_x
+            printf '     '
+        done
+    fi
+
+    # Redraw house and lamp in case the erase overlapped them
+    tput cup $(( GROUND - 5 )) 0; printf '   /\    '
+    tput cup $(( GROUND - 4 )) 0; printf '  /  \   '
+    tput cup $(( GROUND - 3 )) 0; printf ' | [] |  '
+    tput cup $(( GROUND - 2 )) 0; printf ' |    |  '
+    tput cup $(( GROUND - 1 )) 0; printf ' |____|  '
+
+    tput cup $(( GROUND - 4 )) $(( COLS - 9 )); printf '.-.  '
+    tput cup $(( GROUND - 3 )) $(( COLS - 9 )); printf '| |  '
+    tput cup $(( GROUND - 2 )) $(( COLS - 9 )); printf ' |   '
+    tput cup $(( GROUND - 1 )) $(( COLS - 9 )); printf ' |   '
+
+    ref="${frames[$fi]}[@]"
+    lines=("${!ref}")
+    for i in "${!lines[@]}"; do
+        tput cup $(( MID + i )) $x
+        printf '%s' "${lines[$i]}"
+    done
+
+    prev_x=$x
+    fi=$(( (fi + 1) % 4 ))
+    x=$(( x + 2 ))
+
+    if [ "$x" -ge "$max_x" ]; then
+        sleep 0.3
+        clear
+
+        ART_ROW=$(( ROWS/2 - 3 ))
+        ART_END=$(( ART_ROW + 6 ))
+
+        printf '\033[1;33m'
+        tput cup "$ART_ROW" 0
+        cat << 'ART'
+__   __          _                                                _ _
+\ \ / /__  _   _( )_   _____    ___  ___  ___ __ _ _ __   ___  __| | |
+ \ V / _ \| | | |/\ \ / / _ \  / _ \/ __|/ __/ _` | '_ \ / _ \/ _` | |
+  | | (_) | |_| |  \ V /  __/ |  __/\__ \ (_| (_| | |_) |  __/ (_| |_|
+  |_|\___/ \__,_|   \_/ \___|  \___||___/\___\__,_| .__/ \___|\__,_(_)
+                                                  |_|
+ART
+        printf '\033[0m'
+
+        CHARS=('*' '+' 'o' '#' '@' '.' '%' '~' '^' '&' '$' 'x')
+        COLORS=($'\033[1;31m' $'\033[1;32m' $'\033[1;33m' $'\033[1;34m' $'\033[1;35m' $'\033[1;36m')
+        NC=$'\033[0m'
+
+        for _round in $(seq 1 100); do
+            for _piece in $(seq 1 8); do
+                ry=$(( RANDOM % ROWS ))
+                if [ "$ry" -ge "$ART_ROW" ] && [ "$ry" -le "$ART_END" ]; then
+                    continue
+                fi
+                rx=$(( RANDOM % (COLS - 1) ))
+                ci=$(( RANDOM % 6 ))
+                ki=$(( RANDOM % ${#CHARS[@]} ))
+                tput cup "$ry" "$rx"
+                printf "%s%s%s" "${COLORS[$ci]}" "${CHARS[$ki]}" "$NC"
+            done
+            sleep 0.05
+        done
+
+        tput cup $(( ROWS - 2 )) 0
+        printf '\033[2;37m%*s\n' $(( (COLS + 22) / 2 )) "Press Ctrl+C to close"
+        while true; do sleep 10; done
+    fi
+
+    sleep 0.09
+done
+RUNEOF
 chmod +x "$SCRIPT_DIR/street/run_away.sh"
 EOF
 chmod +x open_door.sh
@@ -639,127 +803,6 @@ left here deliberately, as if anticipated.
                                                — W
 EOF
 
-# ── Staging: street ───────────────────────────────────────────
-mkdir -p .staging/street
-
-cat > .staging/street/README.txt << 'EOF'
-You're outside.
-
-Cold night air fills your lungs. Above you, a full moon.
-Behind you, the manor — its windows dark, its crows finally silent.
-
-The street stretches out ahead.
-EOF
-
-cat > .staging/street/run_away.sh << 'OUTEREOF'
-#!/usr/bin/env bash
-if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Usage: ./run_away.sh"
-    echo ""
-    echo "You made it out. Run!"
-    echo "Press Ctrl+C to exit."
-    exit 0
-fi
-
-trap 'tput cnorm; clear; echo ""; exit 0' INT
-tput civis
-clear
-
-COLS=$(tput cols 2>/dev/null || echo 80)
-ROWS=$(tput lines 2>/dev/null || echo 24)
-MID=$(( ROWS / 2 - 5 ))
-
-# ── Indiana Jones — 4 running frames, 10 lines × 22 chars ─────
-# Hat: wide-brimmed fedora. Whip: trailing to the left.
-declare -a F0=(
-'      ,--------,      '
-'   __/  ,~~~~,  \__   '
-'  /    ( o  o )    \  '
-'   \    \____/    /   '
-'    \____/ || \___/   '
-'   ~~~~~  /||\        '
-'         / || \       '
-'        /  /\  \      '
-'       /  /  \  \     '
-'      |  |    |  |    '
-)
-declare -a F1=(
-'      ,--------,      '
-'   __/  ,~~~~,  \__   '
-'  /    ( o  o )    \  '
-'   \    \____/    /   '
-'    \____/ || \___/   '
-'   ~~~~~  /||\        '
-'         / || \       '
-'        /\ /   \      '
-'       /  X     |     '
-'      |  / \    |     '
-)
-declare -a F2=(
-'      ,--------,      '
-'   __/  ,~~~~,  \__   '
-'  /    ( o  o )    \  '
-'   \    \____/    /   '
-'    \____/ || \___/   '
-'   ~~~~~  /||\        '
-'         / || \       '
-'            ||        '
-'           /  \       '
-'          /    \      '
-)
-declare -a F3=(
-'      ,--------,      '
-'   __/  ,~~~~,  \__   '
-'  /    ( o  o )    \  '
-'   \    \____/    /   '
-'    \____/ || \___/   '
-'   ~~~~~  /||\        '
-'         / || \       '
-'        /    /\       '
-'       |    /  \      '
-'       |   |    |     '
-)
-
-frames=(F0 F1 F2 F3)
-fi=0
-x=1
-max_x=$(( COLS - 23 ))
-
-while true; do
-    clear
-    ref="${frames[$fi]}[@]"
-    lines=("${!ref}")
-    for i in "${!lines[@]}"; do
-        tput cup $(( MID + i )) $x
-        printf '%s' "${lines[$i]}"
-    done
-
-    fi=$(( (fi + 1) % 4 ))
-    x=$(( x + 2 ))
-
-    if [ "$x" -ge "$max_x" ]; then
-        sleep 0.3
-        clear
-        printf '\033[1;33m'
-        tput cup $(( ROWS/2 - 4 )) 0
-        cat << 'ART'
-
-  __   __ ___  _   _   ___  ____   ___   _   ____  ___  ____  _
-  \ \ / // _ \| | | | | __|/ ___| / __\ / \ |  _ \| __||  _ \| |
-   \ V /| (_) | |_| | | _| \___ \| (__ / _ \| |_) | _| | | | |_|
-    \_/  \___/ \___/  |___|/____/ \___/_/ \_\____/|___||_| |_(_)
-
-ART
-        printf '\033[0m'
-        tput cup $(( ROWS/2 + 2 )) 0
-        printf '%*s\n' $(( (COLS + 22) / 2 )) "Press Ctrl+C to close"
-        while true; do sleep 10; done
-    fi
-
-    sleep 0.09
-done
-OUTEREOF
-# chmod set by open_door.sh after copy
 
 # ================================================================
 # VISUAL PADDING — add breathing room above/below all object text
